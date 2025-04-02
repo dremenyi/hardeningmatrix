@@ -323,11 +323,9 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
     This function supports multiple scanner formats, with special handling for:
     - Nessus compliance scan results
     - Various CSV structures with different column names
-    - Extraction of compliance IDs from description fields
     
     Key capabilities:
     - Dynamically identify compliance ID column
-    - Extract compliance IDs from description text when needed
     - Extract additional metadata into additional_fields
     - Handle different CSV structures and column variations
     
@@ -388,12 +386,17 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
         
         # If not Nessus format, try to identify the compliance ID column
         compliance_id_col = None
-        possible_id_cols = ['Compliance ID', 'Finding ID', 'STIG ID', 'Vulnerability ID', 'ID', 'Unique ID']
+        possible_id_cols = ['Compliance ID', 'Finding ID', 'STIG ID', 'Vulnerability ID', 'ID', 'Unique ID', 'Description']
         
         for col in possible_id_cols:
             if col in df.columns:
                 compliance_id_col = col
                 break
+        
+        if not compliance_id_col:
+            print(f"{ORANGE}Could not identify compliance ID column in CSV file.{RESET}")
+            print(f"{ORANGE}Available columns: {', '.join(df.columns)}{RESET}")
+            return []
         
         # Identify other key columns
         status_col = next((col for col in df.columns if 'status' in col.lower() or 'object' in col.lower()), None)
@@ -401,137 +404,35 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
         hostname_col = next((col for col in df.columns if any(h in col.lower() for h in ['host', 'asset', 'hostname'])), None)
         description_col = next((col for col in df.columns if any(d in col.lower() for d in ['desc', 'finding', 'title'])), None)
         
-        # Add debugging for status column detection
-        if status_col:
-            print(f"{ORANGE}Found status column: '{status_col}'{RESET}")
-            # Print some sample status values
-            status_samples = df[status_col].dropna().head(10).tolist()
-            print(f"{ORANGE}Sample status values: {status_samples}{RESET}")
-        else:
-            print(f"{ORANGE}Warning: Could not identify a status column. Available columns: {', '.join(df.columns)}{RESET}")
-            # Try to guess which column might contain status
-            for col in df.columns:
-                sample_values = df[col].dropna().head(5).tolist()
-                print(f"{ORANGE}Column '{col}' sample values: {sample_values}{RESET}")
+        # Parse results
+        results = []
+        for _, row in df.iterrows():
+            # Skip rows with empty compliance ID
+            if pd.isna(row[compliance_id_col]) or not row[compliance_id_col]:
+                continue
+            
+            # Create a result object
+            try:
+                result = ComplianceScanResult(
+                    compliance_id=str(row[compliance_id_col]).strip(),
+                    status=str(row[status_col]).strip() if status_col and not pd.isna(row[status_col]) else "Unknown",
+                    severity=row[severity_col] if severity_col and not pd.isna(row[severity_col]) else None,
+                    hostname=str(row[hostname_col]).strip() if hostname_col and not pd.isna(row[hostname_col]) else None,
+                    description=str(row[description_col]).strip() if description_col and not pd.isna(row[description_col]) else None,
+                )
+                
+                # Add all other columns as additional fields
+                for col in df.columns:
+                    if col not in [compliance_id_col, status_col, severity_col, hostname_col, description_col]:
+                        if not pd.isna(row[col]):
+                            result.additional_fields[col] = row[col]
+                
+                results.append(result)
+            except Exception as e:
+                print(f"{ORANGE}Error processing row: {str(e)}{RESET}")
         
-        # If a dedicated compliance ID column was found, use it
-        if compliance_id_col:
-            # Parse results
-            results = []
-            for _, row in df.iterrows():
-                # Skip rows with empty compliance ID
-                if pd.isna(row[compliance_id_col]) or not row[compliance_id_col]:
-                    continue
-                
-                # Create a result object
-                try:
-                    result = ComplianceScanResult(
-                        compliance_id=str(row[compliance_id_col]).strip(),
-                        status=str(row[status_col]).strip() if status_col and not pd.isna(row[status_col]) else "Unknown",
-                        severity=row[severity_col] if severity_col and not pd.isna(row[severity_col]) else None,
-                        hostname=str(row[hostname_col]).strip() if hostname_col and not pd.isna(row[hostname_col]) else None,
-                        description=str(row[description_col]).strip() if description_col and not pd.isna(row[description_col]) else None,
-                    )
-                    
-                    # Add all other columns as additional fields
-                    for col in df.columns:
-                        if col not in [compliance_id_col, status_col, severity_col, hostname_col, description_col]:
-                            if not pd.isna(row[col]):
-                                result.additional_fields[col] = row[col]
-                    
-                    results.append(result)
-                except Exception as e:
-                    print(f"{ORANGE}Error processing row: {str(e)}{RESET}")
-            
-            print(f"{ORANGE}Extracted {len(results)} compliance items from CSV format{RESET}")
-            return results
-            
-        # If no compliance ID column was found, try to extract from Description
-        elif 'Description' in df.columns:
-            print(f"{ORANGE}No dedicated compliance ID column found. Attempting to extract IDs from Description column...{RESET}")
-            
-            # Create a list to store extracted compliance scan results
-            results = []
-            
-            # Regular expression to find RHEL IDs
-            rhel_pattern = r'(RHEL-\d{2}-\d{6})'
-            
-            # For each row in the dataframe
-            for _, row in df.iterrows():
-                description = str(row.get('Description', ''))
-                matches = re.findall(rhel_pattern, description)
-                
-                # If we found compliance IDs in the description
-                if matches:
-                    for compliance_id in matches:
-                        # Create a separate result for each compliance ID found
-                        try:
-                            result = ComplianceScanResult(
-                                compliance_id=compliance_id,
-                                status=str(row.get(status_col)).strip() if status_col and not pd.isna(row[status_col]) else "Unknown",
-                                severity=row.get(severity_col) if severity_col and not pd.isna(row[severity_col]) else None,
-                                hostname=str(row.get(hostname_col)).strip() if hostname_col and not pd.isna(row[hostname_col]) else None,
-                                description=description
-                            )
-                            
-                            # Add other fields
-                            for col in df.columns:
-                                if col not in ['Description', status_col, severity_col, hostname_col]:
-                                    if col in row and not pd.isna(row.get(col)):
-                                        result.additional_fields[col] = row.get(col)
-                            
-                            # Add the Plugin ID as an additional field for reference
-                            if 'Plugin ID' in df.columns:
-                                result.additional_fields['Plugin ID'] = row.get('Plugin ID')
-                                
-                            results.append(result)
-                        except Exception as e:
-                            print(f"{ORANGE}Error processing compliance ID {compliance_id}: {str(e)}{RESET}")
-            
-            if results:
-                print(f"{ORANGE}Extracted {len(results)} compliance items from Description field{RESET}")
-                return results
-            else:
-                print(f"{ORANGE}No compliance IDs found in Description field{RESET}")
-                
-        # If no compliance ID column was found and no IDs in Description, look for Plugin IDs
-        if 'Plugin ID' in df.columns:
-            print(f"{ORANGE}Using 'Plugin ID' as backup compliance ID column{RESET}")
-            
-            results = []
-            for _, row in df.iterrows():
-                # Skip rows with empty Plugin ID
-                if pd.isna(row['Plugin ID']) or not row['Plugin ID']:
-                    continue
-                
-                # Create a result object with Plugin ID as compliance ID
-                try:
-                    plugin_id = str(row['Plugin ID']).strip()
-                    result = ComplianceScanResult(
-                        compliance_id=f"Plugin-{plugin_id}",  # Prefix to distinguish from real compliance IDs
-                        status=str(row[status_col]).strip() if status_col and not pd.isna(row[status_col]) else "Unknown",
-                        severity=row[severity_col] if severity_col and not pd.isna(row[severity_col]) else None,
-                        hostname=str(row[hostname_col]).strip() if hostname_col and not pd.isna(row[hostname_col]) else None,
-                        description=str(row['Description']).strip() if 'Description' in df.columns and not pd.isna(row['Description']) else None,
-                    )
-                    
-                    # Add all other columns as additional fields
-                    for col in df.columns:
-                        if col not in ['Plugin ID', status_col, severity_col, hostname_col, 'Description']:
-                            if not pd.isna(row[col]):
-                                result.additional_fields[col] = row[col]
-                    
-                    results.append(result)
-                except Exception as e:
-                    print(f"{ORANGE}Error processing row: {str(e)}{RESET}")
-            
-            print(f"{ORANGE}Extracted {len(results)} compliance items using Plugin IDs{RESET}")
-            return results
-        
-        # If we still don't have any usable identifier column
-        print(f"{ORANGE}Could not identify compliance ID column in CSV file.{RESET}")
-        print(f"{ORANGE}Available columns: {', '.join(df.columns)}{RESET}")
-        return []
+        print(f"{ORANGE}Extracted {len(results)} compliance items from CSV format{RESET}")
+        return results
     
     except Exception as e:
         print(f"{ORANGE}Error reading CSV file: {str(e)}{RESET}")
@@ -540,14 +441,13 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
         return []
 
 
-def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results: List[ComplianceItem], csv_path: str = "") -> ComparisonResult:
+def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results: List[ComplianceItem]) -> ComparisonResult:
     """
     Compare scan results against Smartsheet results.
     
     Args:
         scan_results: List of scan results
         smartsheet_results: List of ComplianceItem objects
-        csv_path: Path to the original CSV file (used for format-specific handling)
         
     Returns:
         ComparisonResult object
@@ -586,30 +486,6 @@ def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results
         
         return status_str, is_approved
     
-    # Function to check if a status indicates an item that needs review
-    def needs_review_status(status_str):
-        """Check if a status string indicates an item that needs review (FAILED or WARNING)."""
-        if not status_str:
-            return False
-            
-        # Print some status values for debugging (limit to first few)
-        if getattr(needs_review_status, 'debug_count', 0) < 10:
-            print(f"{ORANGE}Checking status: '{status_str}'{RESET}")
-            needs_review_status.debug_count = getattr(needs_review_status, 'debug_count', 0) + 1
-            
-        # Convert to string in case it's not already
-        status_str = str(status_str)
-        
-        # IMPORTANT: Explicitly check for PASSED status with flexible pattern matching
-        if "[PASSED]" in status_str or "[PASS]" in status_str:
-            return False
-        
-        # Check for FAILED or WARNING patterns
-        if "[FAILED]" in status_str or "[WARNING]" in status_str:
-            return True
-            
-        return False
-    
     # Process matched items
     for comp_id in matching_ids:
         scan_item = next(item for item in scan_results if item.compliance_id == comp_id)
@@ -643,25 +519,42 @@ def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results
 
         result.matched_items.append(combined_item)
     
-    # Process unmatched scan items - FILTER FOR FAILED AND WARNING STATUS
+    # Process unmatched scan items
+    # result.unmatched_scan_items = [item for item in scan_results if item.compliance_id not in matching_ids]
+     
+    
+    # # Process unmatched Smartsheet items
+    # result.unmatched_smartsheet_items = [
+    #     item for item in smartsheet_results 
+    #     if item.compliance_id and item.compliance_id not in matching_ids
+    # ]
+    
+    # return result
     all_unmatched = [item for item in scan_results if item.compliance_id not in matching_ids]
     
-    # Sample some statuses for debugging
-    print(f"{ORANGE}Sample status values from unmatched items:{RESET}")
-    for i, item in enumerate(all_unmatched[:10]):  # First 10 items
-        print(f"{ORANGE}  Item {i+1}: compliance_id='{item.compliance_id}', status='{item.status}'{RESET}")
+    def needs_review_status(status_str):
+        """Check if a status string indicates an item that needs review (FAILED or WARNING)."""
+        if not status_str:
+            return False
+            
+        # Convert to string in case it's not already
+        status_str = str(status_str)
+        
+        # Check for exact matches first (case-sensitive)
+        exact_matches = ["[FAILED]", "FAILED", "Fail", "[WARNING]", "WARNING", "Warn"]
+        if any(match in status_str for match in exact_matches):
+            return True
+            
+        # Then check for lowercase variations
+        status_lower = status_str.lower()
+        lowercase_patterns = ["fail", "[failed]", "failure", "warn", "[warning]", "warning"]
+        return any(pattern in status_lower for pattern in lowercase_patterns)
     
     # Filter to only include failed and warning items
     result.unmatched_scan_items = [
         item for item in all_unmatched 
         if needs_review_status(item.status)
     ]
-    
-    # If still no items, use all unmatched items as a fallback
-    if not result.unmatched_scan_items and all_unmatched:
-        print(f"{ORANGE}WARNING: All {len(all_unmatched)} unmatched items were filtered out! Using a subset without filtering.{RESET}")
-        # Take a subset (up to 100 items) to avoid overwhelming the report
-        result.unmatched_scan_items = all_unmatched[:100]
     
     # Log filtering statistics
     print(f"{ORANGE}Found {len(all_unmatched)} unmatched scan items, filtered to {len(result.unmatched_scan_items)} failed/warning items{RESET}")
@@ -674,12 +567,12 @@ def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results
     
     return result
 
+
 def process_compliance_data(
     control_sheet_data: Dict[str, Any],
     compliance_sheet_data: Dict[str, Any],
     selected_client: str,
-    scan_results: List[ComplianceScanResult],
-    csv_path: str = ""
+    scan_results: List[ComplianceScanResult]
 ) -> ComparisonResult:
     """
     Process all compliance data and generate comparison results.
@@ -689,7 +582,6 @@ def process_compliance_data(
         compliance_sheet_data: Data from the Compliance ClearingHouse sheet
         selected_client: The client selected by the user
         scan_results: List of scan results from CSV
-        csv_path: Path to the original CSV file (for format-specific handling)
         
     Returns:
         ComparisonResult with all matched and unmatched items
@@ -701,6 +593,6 @@ def process_compliance_data(
     compliance_items = extract_compliance_items(compliance_sheet_data, client_controls)
     
     # 3. Compare with scan results
-    comparison = compare_results(scan_results, compliance_items, csv_path)
+    comparison = compare_results(scan_results, compliance_items)
     
     return comparison

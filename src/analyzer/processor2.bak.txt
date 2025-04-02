@@ -323,7 +323,7 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
     This function supports multiple scanner formats, with special handling for:
     - Nessus compliance scan results
     - Various CSV structures with different column names
-    - Extraction of compliance IDs from description fields
+    - Extraction of compliance IDs from Description fields
     
     Key capabilities:
     - Dynamically identify compliance ID column
@@ -540,14 +540,13 @@ def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
         return []
 
 
-def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results: List[ComplianceItem], csv_path: str = "") -> ComparisonResult:
+def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results: List[ComplianceItem]) -> ComparisonResult:
     """
     Compare scan results against Smartsheet results.
     
     Args:
         scan_results: List of scan results
         smartsheet_results: List of ComplianceItem objects
-        csv_path: Path to the original CSV file (used for format-specific handling)
         
     Returns:
         ComparisonResult object
@@ -586,30 +585,6 @@ def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results
         
         return status_str, is_approved
     
-    # Function to check if a status indicates an item that needs review
-    def needs_review_status(status_str):
-        """Check if a status string indicates an item that needs review (FAILED or WARNING)."""
-        if not status_str:
-            return False
-            
-        # Print some status values for debugging (limit to first few)
-        if getattr(needs_review_status, 'debug_count', 0) < 10:
-            print(f"{ORANGE}Checking status: '{status_str}'{RESET}")
-            needs_review_status.debug_count = getattr(needs_review_status, 'debug_count', 0) + 1
-            
-        # Convert to string in case it's not already
-        status_str = str(status_str)
-        
-        # IMPORTANT: Explicitly check for PASSED status with flexible pattern matching
-        if "[PASSED]" in status_str or "[PASS]" in status_str:
-            return False
-        
-        # Check for FAILED or WARNING patterns
-        if "[FAILED]" in status_str or "[WARNING]" in status_str:
-            return True
-            
-        return False
-    
     # Process matched items
     for comp_id in matching_ids:
         scan_item = next(item for item in scan_results if item.compliance_id == comp_id)
@@ -643,43 +618,62 @@ def compare_results(scan_results: List[ComplianceScanResult], smartsheet_results
 
         result.matched_items.append(combined_item)
     
-    # Process unmatched scan items - FILTER FOR FAILED AND WARNING STATUS
+    # Process unmatched scan items
+    # result.unmatched_scan_items = [item for item in scan_results if item.compliance_id not in matching_ids]
+     
+    
+    # # Process unmatched Smartsheet items
+    # result.unmatched_smartsheet_items = [
+    #     item for item in smartsheet_results 
+    #     if item.compliance_id and item.compliance_id not in matching_ids
+    # ]
+    
+    # return result
     all_unmatched = [item for item in scan_results if item.compliance_id not in matching_ids]
     
-    # Sample some statuses for debugging
-    print(f"{ORANGE}Sample status values from unmatched items:{RESET}")
-    for i, item in enumerate(all_unmatched[:10]):  # First 10 items
-        print(f"{ORANGE}  Item {i+1}: compliance_id='{item.compliance_id}', status='{item.status}'{RESET}")
+    def needs_review_status(status_str):
+    """Check if a status string indicates an item that needs review (FAILED or WARNING)."""
+    if not status_str:
+        return False
+        
+    # Print some status values for debugging (limit to first few)
+    if getattr(needs_review_status, 'debug_count', 0) < 10:
+        print(f"{ORANGE}Checking status: '{status_str}'{RESET}")
+        needs_review_status.debug_count = getattr(needs_review_status, 'debug_count', 0) + 1
+        
+    # Convert to string in case it's not already
+    status_str = str(status_str)
     
-    # Filter to only include failed and warning items
-    result.unmatched_scan_items = [
-        item for item in all_unmatched 
-        if needs_review_status(item.status)
-    ]
+    # IMPORTANT: If the status is numeric, interpret non-zero as needing review
+    if status_str.strip().isdigit():
+        return int(status_str.strip()) > 0
     
-    # If still no items, use all unmatched items as a fallback
-    if not result.unmatched_scan_items and all_unmatched:
-        print(f"{ORANGE}WARNING: All {len(all_unmatched)} unmatched items were filtered out! Using a subset without filtering.{RESET}")
-        # Take a subset (up to 100 items) to avoid overwhelming the report
-        result.unmatched_scan_items = all_unmatched[:100]
-    
-    # Log filtering statistics
-    print(f"{ORANGE}Found {len(all_unmatched)} unmatched scan items, filtered to {len(result.unmatched_scan_items)} failed/warning items{RESET}")
-    
-    # Process unmatched Smartsheet items
-    result.unmatched_smartsheet_items = [
-        item for item in smartsheet_results 
-        if item.compliance_id and item.compliance_id not in matching_ids
-    ]
-    
-    return result
+    # Check for exact matches first (case-sensitive)
+    exact_matches = ["[FAILED]", "FAILED", "Fail", "[WARNING]", "WARNING", "Warn", "ERROR", "Error", "Critical"]
+    if any(match in status_str for match in exact_matches):
+        return True
+        
+    # Then check for lowercase variations
+    status_lower = status_str.lower()
+    lowercase_patterns = ["fail", "[failed]", "failure", "warn", "[warning]", "warning", "error", "critical", "vulnerability", "vuln"]
+    if any(pattern in status_lower for pattern in lowercase_patterns):
+        return True
+        
+    # For ChainAnalysis, any non-empty status might indicate an issue
+    if "chainanalysis" in csv_path.lower() and status_str.strip():
+        return True
+        
+    return False
+
+    # Set initial debug counter
+needs_review_status.debug_count = 0
+
 
 def process_compliance_data(
     control_sheet_data: Dict[str, Any],
     compliance_sheet_data: Dict[str, Any],
     selected_client: str,
-    scan_results: List[ComplianceScanResult],
-    csv_path: str = ""
+    scan_results: List[ComplianceScanResult]
 ) -> ComparisonResult:
     """
     Process all compliance data and generate comparison results.
@@ -689,7 +683,6 @@ def process_compliance_data(
         compliance_sheet_data: Data from the Compliance ClearingHouse sheet
         selected_client: The client selected by the user
         scan_results: List of scan results from CSV
-        csv_path: Path to the original CSV file (for format-specific handling)
         
     Returns:
         ComparisonResult with all matched and unmatched items
@@ -701,6 +694,6 @@ def process_compliance_data(
     compliance_items = extract_compliance_items(compliance_sheet_data, client_controls)
     
     # 3. Compare with scan results
-    comparison = compare_results(scan_results, compliance_items, csv_path)
+    comparison = compare_results(scan_results, compliance_items)
     
     return comparison

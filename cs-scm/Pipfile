@@ -5,9 +5,9 @@ name = "pypi"
 
 [packages]
 smartsheet-python-sdk = "*"
-pydantic = "*"
 pandas = "*"
 openpyxl = "*"
+pydantic = "*"
 
 [dev-packages]
 

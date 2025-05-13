@@ -194,9 +194,8 @@ def run_app():
             control_sheet_data,
             compliance_sheet_data,
             selected_client,
-            scan_results,
-            args.scan_csv  # Pass the CSV path
-)
+            scan_results
+        )
         
         if not comparison:
             print(f"{ORANGE}No Smartsheet results found. Exiting.{RESET}")

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg-info/
+.eggs/
+
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+.venv/
+# If you have a custom Pipenv environment location, add it here
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Project specific
+*.json
+!tests/fixtures/*.json  # Keep test fixtures
+
+# Data files
+*.xlsx
+*.csv
+# If you want to keep specific CSV/XLSX files as examples, uncomment below
+# !examples/*.csv
+# !examples/*.xlsx

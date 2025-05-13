@@ -105,7 +105,7 @@ def create_summary_sheet(writer: pd.ExcelWriter, comparison: ComparisonResult):
             'Total Scan Items',
             'Total Smartsheet Items',
             'Matched Items',
-            'Missing from SCM Template',
+            'Unmatched Scan Items',
             'Approved Items',
             'Items Under Review',
             'Items Requiring Fixes'
@@ -271,7 +271,7 @@ def create_unmatched_scan_sheet(writer: pd.ExcelWriter, comparison: ComparisonRe
     else:
         df_scan = pd.DataFrame(scan_items)
     
-    df_scan.to_excel(writer, sheet_name='Missing from SCM Template', index=False)
+    df_scan.to_excel(writer, sheet_name='Unmatched Scan Items', index=False)
 
 
 # This function has been replaced by create_approved_items_sheet and create_unapproved_items_sheet

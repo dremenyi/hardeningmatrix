@@ -151,7 +151,7 @@ def extract_client_controls(control_sheet_data: Dict[str, Any], selected_client:
     return client_controls
 
 
-def extract_compliance_items(compliance_sheet_data: Dict[str, Any], client_controls: ClientControls) -> List[ComplianceItem]:
+#def extract_compliance_items(compliance_sheet_data: Dict[str, Any], client_controls: ClientControls) -> List[ComplianceItem]:
     """
     Extract compliance items from Smartsheet and replace placeholders with client-specific values.
     
@@ -439,6 +439,197 @@ def extract_compliance_items(compliance_sheet_data: Dict[str, Any], client_contr
         import traceback
         traceback.print_exc()
         return []
+
+def extract_compliance_items(compliance_sheet_data: Dict[str, Any], client_controls: ClientControls) -> List[ComplianceItem]:
+    """
+    Extract compliance items from Smartsheet and replace placeholders with client-specific values.
+    
+    This function:
+    - Dynamically maps Smartsheet columns to ComplianceItem fields
+    - Replaces placeholders in deviation rationales
+    - Tracks which placeholders were replaced
+    - Preserves original rationale text
+    - Normalizes should_fix values to proper boolean types
+    
+    Args:
+        compliance_sheet_data: Raw Smartsheet data for the Compliance ClearingHouse sheet
+        client_controls: ClientControls object with placeholder mappings
+    
+    Returns:
+        List of ComplianceItem objects with replaced placeholders
+    """
+    # Create placeholder mapping dict for easier lookup
+    placeholder_mapping = client_controls.to_dict()
+    
+    # List to hold our compliance items
+    compliance_items = []
+    
+    # Find the column IDs for columns we need
+    column_ids = {}
+    
+    # Map common column names to our data model fields
+    for column in compliance_sheet_data.get('columns', []):
+        column_title = column['title'].lower()
+        if 'compliance id' in column_title or 'complianceid' in column_title:
+            column_ids['compliance_id'] = column['id']
+        elif 'finding description' in column_title:
+            column_ids['finding_description'] = column['id']
+        elif 'srg solution' in column_title:
+            column_ids['srg_solution'] = column['id']
+        elif 'deviation type' in column_title:
+            column_ids['deviation_type'] = column['id']
+        elif 'deviation rationale' in column_title and 'status' not in column_title:
+            column_ids['deviation_rationale'] = column['id']
+        elif 'supporting documents' in column_title:
+            column_ids['supporting_documents'] = column['id']
+        elif 'deviation rationale status' in column_title or ('status' in column_title and 'deviation' in column_title):
+            column_ids['deviation_status'] = column['id']
+        elif 'should fix' in column_title:
+            column_ids['should_fix'] = column['id']
+        elif 'comments' in column_title:
+            column_ids['comments'] = column['id']
+    
+    # Helper function to normalize boolean values
+    def normalize_boolean(value):
+        """Convert various representations of boolean values to Python boolean."""
+        if value is None:
+            return None
+            
+        # If it's already a boolean, return it
+        if isinstance(value, bool):
+            return value
+            
+        # Convert to string and normalize
+        str_value = str(value).strip().lower()
+        
+        # Check for various "true" values
+        true_values = ['true', 'yes', 'y', '1', 'checked', 'x', 'on', 't']
+        false_values = ['false', 'no', 'n', '0', 'unchecked', '', 'off', 'f']
+        
+        if str_value in true_values:
+            return True
+        elif str_value in false_values:
+            return False
+        else:
+            return None
+    
+    # Helper function to ensure string values
+    def ensure_string(value):
+        """Convert value to string if not None, otherwise return None."""
+        if value is None:
+            return None
+        return str(value)
+    
+    # Process each row and replace placeholders
+    for row in compliance_sheet_data.get('rows', []):
+        # Create a new compliance item for this row
+        item_data = {}
+        replaced_placeholders = set()
+        original_rationale = None
+        
+        # Extract compliance ID first for better reference
+        compliance_id = None
+        for cell in row.get('cells', []):
+            if cell.get('column_id') == column_ids.get('compliance_id'):
+                compliance_id = cell.get('value')
+                # Ensure compliance_id is a string
+                if compliance_id is not None:
+                    compliance_id = str(compliance_id)
+                break
+        
+        # Extract all the field values
+        for cell in row.get('cells', []):
+            col_id = cell.get('column_id')
+            
+            # Go through our mapped column IDs and set the appropriate fields
+            for field_name, field_col_id in column_ids.items():
+                if col_id == field_col_id:
+                    # For the deviation rationale, we'll store both original and updated versions
+                    if field_name == 'deviation_rationale':
+                        original_text = cell.get('value') or ''
+                        if original_text is not None:
+                            original_text = str(original_text)
+                        original_rationale = original_text
+                        
+                        # Skip empty rationales
+                        if not original_text.strip():
+                            item_data[field_name] = original_text
+                            break
+                        
+                        # Replace placeholders in the text
+                        updated_text = original_text
+                        for placeholder, value in placeholder_mapping.items():
+                            # Match [placeholder] pattern
+                            pattern = f'\\[{re.escape(placeholder)}\\]'
+                            new_text = re.sub(pattern, value, updated_text, flags=re.IGNORECASE)
+                            if new_text != updated_text:
+                                # If we made a replacement, record which placeholder was used
+                                replaced_placeholders.add(placeholder)
+                            updated_text = new_text
+                        
+                        # Special handling for RHEL-08-010030 and cloud provider placeholder
+                        if compliance_id == 'RHEL-08-010030' and '[cloud provider]' in updated_text:
+                            cloud_provider_value = None
+                            # Look for the 'cloud_provider' value in our mapping
+                            for placeholder, value in placeholder_mapping.items():
+                                if placeholder.lower() in ['cloud_provider', 'cloud provider', 'cloudprovider']:
+                                    cloud_provider_value = value
+                                    break
+                            
+                            if cloud_provider_value:
+                                # Do a direct replacement
+                                updated_text = updated_text.replace('[cloud provider]', cloud_provider_value)
+                        
+                        # Set the updated text
+                        item_data[field_name] = updated_text
+                    elif field_name == 'should_fix':
+                        # Special handling for should_fix to normalize the value
+                        raw_value = cell.get('value')
+                        normalized_value = normalize_boolean(raw_value)
+                        item_data[field_name] = normalized_value
+                    elif field_name == 'compliance_id':
+                        # Ensure compliance_id is a string
+                        raw_value = cell.get('value')
+                        if raw_value is not None:
+                            item_data[field_name] = str(raw_value)
+                        else:
+                            item_data[field_name] = None
+                    else:
+                        # For other fields, just set the value, ensuring string fields are strings
+                        if field_name in ['finding_description', 'srg_solution', 'deviation_type', 
+                                          'supporting_documents', 'deviation_status', 'comments']:
+                            item_data[field_name] = ensure_string(cell.get('value'))
+                        else:
+                            item_data[field_name] = cell.get('value')
+                    break
+        
+        # Only create items that have a compliance ID
+        if 'compliance_id' in item_data and item_data['compliance_id']:
+            # Add the metadata
+            item_data['replaced_placeholders'] = replaced_placeholders
+            item_data['original_rationale'] = original_rationale
+            
+            # Create and add the ComplianceItem
+            try:
+                compliance_items.append(ComplianceItem(**item_data))
+            except Exception as e:
+                print(f"{ORANGE}Error creating ComplianceItem with ID '{item_data.get('compliance_id')}': {str(e)}{RESET}")
+                print(f"{ORANGE}Item data: {item_data}{RESET}")
+    
+    print(f"{ORANGE}Extracted {len(compliance_items)} compliance items from Smartsheet{RESET}")
+    
+    # Check for any unreplaced placeholders
+    unreplaced_items = []
+    for item in compliance_items:
+        if item.deviation_rationale and re.search(r'\[.*?\]', item.deviation_rationale):
+            placeholders = [p for p in re.findall(r'\[(.*?)\]', item.deviation_rationale) if p.strip()]
+            if placeholders:  # Only include non-empty placeholders
+                unreplaced_items.append((item.compliance_id, placeholders))
+    
+    if unreplaced_items:
+        print(f"{ORANGE}WARNING: Found {len(unreplaced_items)} items with unreplaced placeholders{RESET}")
+    
+    return compliance_items
 
 def load_scan_results(csv_path: str) -> List[ComplianceScanResult]:
     """

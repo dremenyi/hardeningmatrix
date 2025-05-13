@@ -23,12 +23,14 @@ class RhelComplianceProcessor(BaseComplianceProcessor):
         """Check if this processor can handle the file."""
         # Check for RHEL in file name
         print(f"trying pattern detection")
-        pattern = r"(rhel[_]?\d*)*"
+        pattern = r"rhel[_-]?\d+|[_-]rhel\d+"
         if re.search(pattern, csv_path, re.IGNORECASE):
             print(f"{ORANGE}Detected RHEL file based on filename{RESET}")
             return True
             
+
         # Check for Nessus format with RHEL compliance IDs
+        
         if "Unique ID" in dataframe.columns:
             print(f"{ORANGE}Found 'Unique ID' column, checking for RHEL content{RESET}")
             sample = dataframe["Unique ID"].dropna().head(20)
@@ -69,12 +71,13 @@ class RhelComplianceProcessor(BaseComplianceProcessor):
     def process(cls, csv_path: str, dataframe: pd.DataFrame) -> List[ComplianceScanResult]:
         """Process RHEL compliance CSV files."""
         results = []
-        
+
+        has_compliance_prefix = False
         # Special handling for Nessus compliance results format
         if "Unique ID" in dataframe.columns and dataframe["Unique ID"].str.contains("Compliance:", na=False).any():
             print(f"{ORANGE}Detected Nessus compliance scan format{RESET}")
             
-            has_compliance_prefix = False
+            
             for _, row in dataframe.iterrows():
                 # Extract compliance ID from the "Unique ID" field (format: "Compliance: RHEL-08-040310 - ...")
                 unique_id = row.get("Unique ID", "")
@@ -108,8 +111,8 @@ class RhelComplianceProcessor(BaseComplianceProcessor):
                         except Exception as e:
                             print(f"{ORANGE}Error processing row with compliance ID {compliance_id}: {str(e)}{RESET}")
             
-            print(f"{ORANGE}Extracted {len(results)} compliance items from Nessus format{RESET}")
-            return results
+                    print(f"{ORANGE}Extracted {len(results)} compliance items from Nessus format{RESET}")
+                    return results
             # If no "Compliance:" prefix was found, try to extract RHEL IDs from other fields
         if not has_compliance_prefix:
             print(f"{ORANGE}No 'Compliance:' prefix found. Looking for RHEL IDs in other fields{RESET}")

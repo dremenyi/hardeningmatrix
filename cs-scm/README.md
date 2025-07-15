@@ -92,7 +92,6 @@ pipenv install pydantic
 - Copy your client files to a separate directory.
 - from the SRC directory, run ```bash
 pipenv shell
-```
 - Run the program
 ```bash
 pipenv run python main.py --scan-csv [path/to/your-compliance-csv-name] --token [your-smartsheet-api-token] --query "SCM Program"

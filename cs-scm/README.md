@@ -1,193 +1,152 @@
 # Smartsheet Compliance Analyzer
 
-A powerful tool for automating compliance analysis by comparing external scan results with Smartsheet compliance data.
+A powerful command-line tool for automating compliance analysis by comparing findings from a Plan of Action and Milestones (POAM) with an organization's compliance documentation stored in Smartsheet.
 
 ## Overview
 
-The Smartsheet Compliance Analyzer is a specialized tool designed to streamline the compliance analysis process by automating the comparison between external compliance scan results and client-specific compliance documentation stored in Smartsheet. This tool helps security and compliance professionals save time and reduce errors when managing compliance exceptions and deviations.
+The **Smartsheet Compliance Analyzer** is a specialized tool designed to streamline the compliance analysis process. It automates the comparison between findings in a POAM file and client-specific compliance documentation in Smartsheet, saving security and compliance professionals significant time and reducing manual errors.
 
+### Supported Benchmarks
 
-### SUPPORTED OPERATING SYSTEMS AND STIG VERSION(S)
-
-- **Redhat Enterprise 8.x (any minor version) | STIG Version V2R1**
-
-### SUPPORTED VULNERABILITY SCANNERS
-
-As of 29 April 2025, only the compliance results outputed from Nessus are known to be working with this tool. Future iterations may include Wiz, and Rapid7.
+-   **Red Hat Enterprise Linux 8.x**
+-   **PostgreSQL 15.x** (for managed cloud instances like AWS RDS, Google Cloud SQL, and Azure Database)
+-   *Future support is planned for Windows, Ubuntu, RHEL 9, and AL2023.*
 
 ### Prerequisites
 
-- **Nessus must be using RHEL stig version V2R1**, any other release will output incorrect results. Ensure the benchmark you are scanning against FOR ALL RHEL 8 SYSTEMS is V2R1.
-- **Client compliance scans must be exported as a .csv from nessus.**
-- **Ensure you have access to the following smartsheets:**
-  - ***[compensating controls list](https://app.smartsheet.com/sheets/c5W6FvwPxQMVVHx5f6mMcWwx98Ww22p9GcQPqmp1?view=grid)***
-    - ****Ensure that the client has their toolsets filled in using the dropdowns provided.****
-  - ***[rhel8 compliance clearing house tracker](https://app.smartsheet.com/sheets/3vfpRJG9GG3RvC5hW6Jf8jCqqXVwmMHp2xHxH2X1?view=grid&filterId=4284754240163716)***
-    - ****You only need access to this sheet, you do not need to edit anything. Editing this sheet could break the automation.****
-- **Create an Access token in Smartsheet.**
-- **Python 3.11.5 or later**
-- **Pip (python package manager)**
-- **pipenv (pip3 install pipenv)**
-### Key Features
+-   **POAM File**: Must be in `.xlsm` format and contain a tab named "Configuration Findings".
+-   **Smartsheet Naming Convention**:
+    -   Your "SCM" sheets must follow the naming convention `SCM: [Benchmark Name]`, for example:
+        -   `SCM: RHEL 8.X`
+        -   `SCM: PostgreSQL15_CIS1.1.0`
+    -   Your "Compensating Controls" sheet must start with the name `Compensating Controls`.
+-   **Smartsheet Access**: You must have a valid API Access Token for your Smartsheet account.
+  
+          -  To create a Smartsheet API Key:
+          -  Login to Smartsheet via the MyApps tile.
+          -  Click the avatar icon in the bottom left corner.
+          -  Select Personal Settings.
+          -  Select API Access in the new window.
+          -  Click 'Generate new access token'.
+          -  Give the token a name specific to the SCM tool, ex: cs-scm.
+          -  Copy the token into a secure password manager for use later. 
+-   **Python 3.9+**
+-   **pipenv** for managing the project's virtual environment.
 
-- **Automated Scan Integration**: Parse various compliance scan result formats (Nessus, CSV)
-- **Smartsheet Data Extraction**: Retrieve and process compliance data from Smartsheet workspaces
-- **Client-Specific Analysis**: Filter and process data for specific clients
-- **Dynamic Placeholder Replacement**: Automatically replace placeholders with client-specific values
-- **Comprehensive Comparison**: Match scan findings with approved deviations and identify gaps
-- **Detailed Reporting**: Generate Excel reports with matched and unmatched compliance items
-
-## Architecture
-
-The application follows a modular architecture with clear separation of concerns:
-
-```
-smartsheet-compliance-analyzer/
-├── main.py                  # Entry point
-├── src/
-│   ├── analyzer/            # Core analysis functionality
-│   │   ├── models.py        # Data models for compliance items
-│   │   └── processor.py     # Processing and comparison logic
-│   ├── cli/                 # Command-line interface
-│   │   ├── app.py           # Main application runner
-│   │   ├── parsers.py       # Command-line argument parsing
-│   │   └── utils.py         # CLI utilities and helpers
-│   ├── export/              # Export functionality
-│   │   └── excel_export.py  # Excel report generation
-│   └── smartsheet/          # Smartsheet API integration
-│       ├── api.py           # API client implementation
-│       └── models.py        # Smartsheet data models
-```
-
-## Workflow
-
-The application follows a step-by-step workflow:
-
-1. **CLI Setup**: Parse command-line arguments to determine input files and options
-2. **Scan Result Loading**: Load and parse compliance scan results from CSV
-3. **Smartsheet Connection**: Authenticate with the Smartsheet API
-4. **Workspace Selection**: Search for and select the appropriate Smartsheet workspace
-5. **Sheet Selection**: Select the required Compensating Controls and Compliance ClearingHouse sheets
-6. **Client Selection**: Select or filter for a specific client
-7. **Control Extraction**: Extract client-specific control values from the Compensating Controls sheet
-8. **Compliance Processing**: Extract compliance items and replace placeholders with client values
-9. **Comparison**: Compare scan results with Smartsheet compliance data
-10. **Report Generation**: Generate a detailed Excel report of the findings
-
+---
 ## Installation
-- Install pipenv with pip (pip or pip3 install pipenv)
-- Clone this code
-- Change directory to the scm directory and run **pipenv install .**
-- run the command (this is a bug, it's not currently installed via the previous pipenv command. Will be fixed in a future release.
- ```bash
-pipenv install pydantic
-```
 
+This project uses `pipenv` for dependency management.
 
+1.  **Clone the repository**:
+    ```bash
+    git clone <repository-url>
+    cd cs-scm
+    ```
+2.  **Install dependencies**:
+    This command will create a virtual environment and install all necessary packages from the `Pipfile`.
+    ```bash
+    pipenv install
+    ```
+
+---
 ## Usage
 
-### Basic Usage
+### Interactive Mode (Recommended)
 
-- Retrieve your Smartsheet API key.
-- Copy your client files to a separate directory.
-- from the SRC directory, run ```bash
-pipenv shell
-- Run the program
+1.  **Activate the virtual environment**:
+    ```bash
+    pipenv shell
+    ```
+
+2.  **Run the program**:
+    The only required arguments are the path to your POAM file and your Smartsheet API token.
+    ```bash
+    python main.py --poam "/path/to/your/poam.xlsm" --token "YOUR_SMARTSHEET_TOKEN"
+    ```
+    The script will then guide you through selecting your workspace, which SCM sheet(s) to analyze, your compensating controls sheet, and the specific client.
+
+### Non-Interactive Mode (for Automation)
+
+You can bypass all interactive prompts by providing the names as command-line arguments.
+
 ```bash
-pipenv run python main.py --scan-csv [path/to/your-compliance-csv-name] --token [your-smartsheet-api-token] --query "SCM Program"
+pipenv run python main.py \
+    --poam "/path/to/poam.xlsm" \
+    --token "YOUR_SMARTSHEET_TOKEN" \
+    --workspace-name "SCM Program" \
+    --scm-sheet "SCM: RHEL 8.X" "SCM:PostgreSQL15_CIS1.1.0" \
+    --compensating-controls-sheet-name "Compensating Controls Tooling List" \
+    --client "Your Client Name" \
+    --output "my_report.xlsx"
 ```
 
-### All Options
+### Command-Line Arguments
 
-```bash
-pipenv run python main.py --scan-csv path/to/scan_results.csv [options]
+| Argument                                    | Short | Description                                            | Required | Skips Interaction Selection | Examples                                                  |
+| ------------------------------------------- | ----- | ------------------------------------------------------ | -------- | ----------------------------|-----------------------------------------------------------|
+| `--poam <path>`                             | `-p`  | The path to the POAM (`.xlsm`) file.                   | **Yes**  |       **No**                |                                                           |
+| `--token <token>`                           | `-t`  | The Smartsheet API token.                              | **Yes**  |       **No**                |                                                           |
+| `--workspace-name <name>`                   |       | The name of the Smartsheet workspace.                  |   No     |       **No**                |                                                           |
+| `--scm-sheet <name>`                        |       | One or more SCM sheet names to analyze.                |   No     |       **Yes**               |**All**, **SCM: RHEL 8.x**, **SCM: PostgreSQL15_CIS1.1.0** |    
+| `--compensating-controls-sheet-name <name>` |       | The name of the Compensating Controls sheet.           |   No     |       **Yes**               |                                                           |
+| `--client <name>`                           | `-c`  | The name of the client to analyze.                     |   No     |       **Yes**               |                                                           |      
+| `--output <filename>`                       | `-o`  | The name of the output Excel file.                     |   No     |       **Yes**               |                                                           |
 
-Options:
-  --scan-csv, -s     Path to the compliance scan CSV file (required)
-  --token, -t        Smartsheet API token (or set SMARTSHEET_TOKEN env variable)
-  --query, -q        Search query for workspace (default: "SCM Program")
-  --client, -c       Client name to filter results (will skip selection if provided)
-  --output, -o       Custom output filename for the Excel report
-```
 
-### Example Workflow
+## Architecture Deep Dive
 
-1. **Run the tool**:
-   ```bash
-   pipenv run python main.py --scan-csv RHEL8Comp.csv --token 123457498273498763450072345 --query "SCM Program"
-   ```
+This section provides a verbose breakdown of the project's architecture and modules for developers and contributors.
 
-2. **Select workspace** from the list of matching workspaces
+### `main.py` - The Entry Point
 
-3. **Select sheets**:
-   - Choose the appropriate "Compensating Controls" sheet
-   - Choose the appropriate "Compliance ClearingHouse" sheet
+The `main.py` script is the primary entry point for the entire application:
 
-4. **Select client** from the list of available clients in the sheet
+-   **Path Setup**: It modifies the system path to ensure that Python can correctly locate and import all modules within the `src` directory. This prevents `ModuleNotFoundError` issues, regardless of how the script is executed.
+-   **Execution**: It imports and calls the `run_app` function from `src.cli.app` and exits with the return code from that function.
 
-5. **Review results** in the generated Excel report:
-   - Matched compliance items (found in both scan and Smartsheet)
-   - Unmatched scan items (items in scan but not in Smartsheet)
+### `src/smartsheet` - API Integration
 
-## Data Models
+This package isolates all direct communication with the Smartsheet API.
 
-### Core Data Models
+-   **`api.py`**: Contains the `SmartsheetClient` class, which is a wrapper around the official `smartsheet-python` library. It simplifies API calls for actions like listing workspaces, searching for sheets, and getting sheet data.
+-   **`models.py`**: Defines Pydantic models that represent objects from the Smartsheet API (like workspaces and sheets), ensuring that the data received from the API is in a predictable and validated format.
 
-- **ControlValue**: Maps placeholder variables to client-specific values
-- **ClientControls**: Collection of control values for a specific client
-- **ComplianceItem**: Represents compliance entries from Smartsheet with enhanced metadata
-- **ComplianceScanResult**: Represents findings from external compliance scan tools
-- **ComparisonResult**: Contains the matching logic outcomes and statistics
+### `src/cli` - Command-Line Interface
 
-### Smartsheet Models
+This package handles all user interaction, from parsing arguments to displaying interactive menus.
 
-- **Workspace**: Represents a Smartsheet workspace container
-- **Sheet**: Represents a Smartsheet sheet with columns and rows
+-   **`parsers.py`**: This module uses Python's `argparse` library to define and manage all command-line arguments. It sets up which arguments are required (like `--poam` and `--token`), which are optional, and which can accept multiple values (like `--scm-sheet`). This file contains all of the application's command-line API arguements.
+-   **`utils.py`**: A collection of helper functions to enhance the user experience. This includes the logic for creating interactive, navigable menus (`select_from_list`) and for printing colored and formatted text to the console.
+-   **`app.py`**: This is the orchestrator of the entire application workflow. The `run_app` function within this module executes the primary logic in a sequential manner:
+    1.  Parses command-line arguments.
+    2.  Connects to the Smartsheet API.
+    3.  Handles workspace, sheet, and client selection, using either the provided command-line arguments or falling back to interactive prompts.
+    4.  Calls the POAM parser to get a grouped dictionary of compliance findings.
+    5.  Loops through each selected benchmark, calling the main `process_compliance_data` function to perform the analysis.
+    6.  Calls the Excel exporter to generate the final report.
 
-## Smartsheet Integration
+### `src/analyzer` - The Core Engine
 
-The tool integrates with Smartsheet using the following specific data structure:
+This package contains all of the logic for data processing, modeling, and comparison.
 
-1. **Compensating Controls Sheet**:
-   - Contains client-specific values in a table format
-   - Each row represents a set of values for a specific client
-   - The "CLIENT" column identifies the client
-   - Other columns represent placeholders that can be substituted into rationales
+-   **`models.py`**: Defines the application's data structures using `Pydantic`. These models (`ComplianceItem`, `ComplianceScanResult`, `ComparisonResult`, etc.) ensure data is valid and consistent as it moves through the application. They enforce data types and prevent common errors.
+-   **`processor.py`**: This module contains the primary data manipulation and analysis functions:
+    -   `extract_client_controls`: Reads the "Compensating Controls" sheet to build a mapping of client-specific values (e.g., `cloud_provider: 'AWS'`).
+    -   `extract_compliance_items`: Reads a "SCM" sheet, creates `ComplianceItem` objects, and performs dynamic placeholder replacement in deviation rationales using the client controls.
+    -   `compare_results`: Takes the list of findings from the POAM and the list of items from Smartsheet and performs the core matching logic based on the `compliance_id`. It generates a `ComparisonResult` object containing the matched and unmatched items.
+    -   `process_compliance_data`: A wrapper function that orchestrates the calls to the functions above for a single benchmark.
+-   **`processors/` (Sub-Package)**: This directory contains the modular, plug-and-play system for parsing the POAM file.
+    -   `base_poam_processor.py`: An abstract base class that serves as a template for all other processors. It mandates that every processor must have a `benchmark_name` and a `can_process` and `process` method, ensuring consistency.
+    -   `poam_processor.py`: This is the **dispatcher**. Its `parse_poam` function is the only one called by the main app. It reads the POAM file row by row and passes each row to its registry of specialized processors, asking "Can you handle this?". The first processor to say "yes" gets to process the row.
+    -   `rhel_poam_processor.py` & `postgres_poam_processor.py`: These are the specialized processors. Each one is an expert on a single benchmark. They contain the specific logic to identify a row as belonging to their benchmark and to correctly extract the `compliance_id` and other relevant data. This is where you would add a new benchmark like Windows. Create the processor and add it to the dispatcher registry.
 
-2. **Compliance ClearingHouse Sheet**:
-   - Contains compliance items with standard fields:
-     - Compliance ID
-     - Finding Description
-     - SRG Solution
-     - Deviation Type
-     - Deviation Rationale (may contain placeholders)
-     - Supporting Documents
-     - Deviation Status
-     - Should Fix flag
+### `src/export` - Reporting
 
-## Development
+This package is responsible for generating the final user-facing output.
 
-### Dependency Management
-
-This project uses Pipenv for dependency management and virtual environment handling:
-
-- `Pipfile` defines the project dependencies
-- `Pipfile.lock` locks all dependencies to specific versions for reproducibility
-
-Common Pipenv commands:
-
-```bash
-# Install all dependencies (including dev)
-pipenv install --dev
-
-# Run a command in the virtual environment
-pipenv run python main.py --scan-csv scan_results.csv
-
-# Activate the virtual environment shell
-pipenv shell
-
-# Add a new package
-pipenv install requests
-
-# Add a development dependency
-pipenv install pytest --dev
+-   **`excel_export.py`**: This module contains all logic for creating the final `.xlsx` report.
+    -   It receives the `all_comparison_results` dictionary, which contains the results for each benchmark.
+    -   It loops through each benchmark and calls the `categorize_findings` function to sort the matched items into the correct buckets (`Approved`, `Should Fix`, etc.).
+    -   It then creates a set of dedicated, prefixed sheets for each benchmark (e.g., `RHEL_Approved`, `PSQLv15_Approved`).
+    -   Finally, the `format_workbook` function applies all the styling, including colors, fonts, column widths, word wrapping, and hyperlinks.
